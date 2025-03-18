@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Settings>
+<src>
+C:\tmp\test.001
+</src>
+<dst>
+C:\tmp\test.003
+</dst>
+<fcb>
+C:\tmp\test.bdiff
+</fcb>
+<opt>2</opt>
+</Settings>
