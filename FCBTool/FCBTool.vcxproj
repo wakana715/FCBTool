@@ -19,13 +19,23 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="GetModuleDirectory.cpp" />
+    <ClCompile Include="GetTemporaryFile.cpp" />
+    <ClCompile Include="ReadFileInt.cpp" />
+    <ClCompile Include="ReadFileMap.cpp" />
     <ClCompile Include="ReadLine.cpp" />
     <ClCompile Include="FCBTool.cpp" />
-    <ClCompile Include="TemporaryFile.cpp" />
+    <ClCompile Include="WriteFileInt.cpp" />
+    <ClCompile Include="WriteFileStrU16.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="GetModuleDirectory.h" />
+    <ClInclude Include="GetTemporaryFile.h" />
+    <ClInclude Include="ReadFileInt.h" />
+    <ClInclude Include="ReadFileMap.h" />
     <ClInclude Include="ReadLine.h" />
-    <ClInclude Include="TemporaryFile.h" />
+    <ClInclude Include="WriteFileInt.h" />
+    <ClInclude Include="WriteFileStrU16.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>

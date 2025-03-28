@@ -3,8 +3,13 @@
  * @brief FC /B で出力された差分を適用する
  * @date 2025
  */
-#include "TemporaryFile.h"
+#include "GetModuleDirectory.h"
+#include "GetTemporaryFile.h"
+#include "ReadFileInt.h"
+#include "ReadFileMap.h"
 #include "ReadLine.h"
+#include "WriteFileInt.h"
+#include "WriteFileStrU16.h"
 #include <windows.h>
 #include <sstream>
 #include <iomanip>
@@ -23,174 +28,46 @@
 
 static byte	s_buf[BUF_SIZE]{};
 static bool	s_stop = false;
+static std::wstring s_wsTempFileParameter;
+static std::wstring s_wsTempFileStatus;
+static std::wstring s_wsTempFileProgress;
 
 /*!
  * @brief テンポラリファイル名取得
+ * @param[in]	_type		テンポラリファイル種別
  * @param[out]	waFileName	テンポラリファイル名
- * @return true:成功, false:失敗
+ * @return 0:成功, 1:GetTemporaryFile失敗
  */
-bool GetTemporaryFileName(std::wstring& _wsFileName)
+static int GetTemporaryFileName(const int _type, std::wstring& _wsFileName)
 {
-	int ret = GetTemporaryFile(L"FCB", reinterpret_cast<wchar_t*>(s_buf));
+	int ret = GetTemporaryFile(L"FCB", sizeof(s_buf), reinterpret_cast<wchar_t*>(s_buf));
 	if (ret != 0)
 	{
 		DWORD dwError = ::GetLastError();
 		std::wstringstream wss;
-		wss << L"Failed GetTemporaryFileName " << ret << L" ";
-		wss << " 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(dwError);
+		wss << L"Failed GetTemporaryFileName(" << _type << L") = " << ret << L" ";
+		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(dwError);
 		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-		return false;
+		return 1;
 	}
 	_wsFileName = reinterpret_cast<wchar_t*>(s_buf);
-	return true;
-}
-
-/*!
- * @brief パラメータファイル読込
- * @param[in]	_p_prm	パラメータファイル名
- * @param[out]	_map	取得したパラメータ
- * @return なし
- */
-void ReadParameter(const wchar_t* _p_prm, std::map<std::wstring, std::wstring>& _map)
-{
-	HANDLE h_prm = ::CreateFileW(_p_prm, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
-	if (h_prm == INVALID_HANDLE_VALUE)
-	{
-		std::wstringstream wss;
-		wss << L"Failed CreateFile " << _p_prm;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-		return;
-	}
-	DWORD dwRead;
-	if (ReadFile(h_prm, s_buf, static_cast<DWORD>(sizeof(s_buf)), &dwRead, NULL) == 0)
-	{
-		std::wstringstream wss;
-		wss << L"Failed ReadFile " << _p_prm;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-	}
-	(void)::CloseHandle(h_prm);
-	s_buf[dwRead] = '\0';
-	if (s_buf[0] != '\0')
-	{
-		std::wstringstream wss;
-		wss << reinterpret_cast<wchar_t*>(s_buf);
-		std::wstring wsLine;
-		do
-		{
-			std::getline(wss, wsLine);
-			size_t lastPos = wsLine.length() - 1;
-			if (wsLine.c_str()[lastPos] == L'\x0d')
-			{
-				wsLine = wsLine.substr(0, lastPos);
-			}
-			size_t findPos = wsLine.find(L'=', 0);
-			if (findPos > 0)
-			{
-				std::wstring key = wsLine.substr(0, findPos);
-				std::wstring val = wsLine.substr(findPos + 1);
-				_map[key] = val;
-			}
-		}while(wsLine.length() > 0);
-	}
-}
-
-/*!
- * @brief ステータスファイル読込
- * @param[in]	_p_sts	ステータスファイル名
- * @param[out]	_p_sts	ステータス 0:NOP, 1:実行要求, 2:実行中, 3:中断要求
- * @return なし
- */
-void ReadStatus(const wchar_t* _p_sts, short int* _p_status)
-{
-	HANDLE h_sts = ::CreateFileW(_p_sts, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
-	if (h_sts == INVALID_HANDLE_VALUE)
-	{
-		std::wstringstream wss;
-		wss << L"Failed CreateFile " << _p_sts;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-		return;
-	}
-	char aryRead[5]{};
-	DWORD dwRead;
-	if (ReadFile(h_sts, aryRead, 4, &dwRead, NULL) == 0)
-	{
-		std::wstringstream wss;
-		wss << L"Failed ReadFile " << _p_sts;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-	}
-	short int status;
-	std::stringstream ss;
-	ss << aryRead;
-	ss >> std::hex >> status;
-	*_p_status = status;
-	(void)::CloseHandle(h_sts);
-}
-
-/*!
- * @brief ステータスファイル更新
- * @param[in]	_p_sts	ステータスファイル名
- * @param[in]	_sts	ステータス 0:NOP, 1:実行要求, 2:実行中, 3:中断要求
- * @return なし
- */
-void WriteStatus(const wchar_t* _p_sts, const short int _sts)
-{
-	HANDLE h_sts = ::CreateFileW(_p_sts, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (h_sts == INVALID_HANDLE_VALUE)
-	{
-		std::wstringstream wss;
-		wss << L"Failed CreateFile " << _p_sts;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-		return;
-	}
-	std::stringstream ss;
-	ss << std::hex << std::setfill('0') << std::setw(4) << _sts;
-	ss << "\r\n";
-	if (WriteFile(h_sts, ss.str().c_str(), 6, NULL, NULL) == 0)
-	{
-		std::wstringstream wss;
-		wss << L"Failed WriteFile " << _p_sts;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-	}
-	(void)::CloseHandle(h_sts);
+	return 0;
 }
 
 /*!
  * @brief プログレスファイル更新
- * @param[in]	_p_prg	プログレスファイル名
  * @param[in]	_max	プログレス最大値
  * @param[in]	_val	プログレス現在値
  * @return なし
  */
-void WriteProgress(const wchar_t* _p_prg, LONGLONG _max, const LONGLONG _val)
+static void WriteProgress(LONGLONG _max, const LONGLONG _val)
 {
-	HANDLE h_prg = ::CreateFileW(_p_prg, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (h_prg == INVALID_HANDLE_VALUE)
-	{
-		std::wstringstream wss;
-		wss << L"Failed CreateFile " << _p_prg;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-		return;
-	}
-	std::stringstream ss;
-	ss << std::hex << std::setfill('0') << std::setw(8) << _max;
-	ss << "\r\n";
-	ss << std::hex << std::setfill('0') << std::setw(8) << _val;
-	ss << "\r\n";
-	if (WriteFile(h_prg, ss.str().c_str(), 20, NULL, NULL) == 0)
-	{
-		std::wstringstream wss;
-		wss << L"Failed WriteFile " << _p_prg;
-		wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-	}
-	(void)::CloseHandle(h_prg);
+	std::wstringstream wss;
+	wss << std::hex << std::setfill(L'0') << std::setw(8) << _max;
+	wss << "\r\n";
+	wss << std::hex << std::setfill(L'0') << std::setw(8) << _val;
+	wss << "\r\n";
+	(void)WriteFileStrU16(s_wsTempFileProgress.c_str(), 20, wss.str().c_str());
 }
 
 /*!
@@ -256,18 +133,18 @@ static int read_fcb(HANDLE _handle, LONGLONG* _p_pos, LONGLONG* _p_adr, byte* _p
  * @param[in]		_p_src		パッチ元ファイル名
  * @param[in]		_p_dst		パッチ先ファイル名
  * @param[in]		_p_fcb		FC /B の表示内容を記録したファイル名
- * @param[in]		_opt		FC /B の差異表示の左右のどちらを適用するかの区分
- *								1:左、2:右
+ * @param[in]		_opt		FC /B の差異表示の左右のどちらを適用するかの区分(1:左、2:右)
  * @param[in]		_p_sts		ステータスファイル名
  * @param[in]		_p_prg		プログレスファイル名
+ * @details
 例)
-FC /B FILE1 FILE2 の実行結果
-ファイル FILE1 と FILE2 を比較しています
+FC /B C:\TMP\test.001 C:\TMP\test.002 の実行結果
+ファイル C:\TMP\test.001 と C:\TMP\TEST.002 を比較しています
 0000038D: 2D 30
           <>    1:左
              <> 2:右
  */
-static void FCBTool(const wchar_t* _p_src, const wchar_t* _p_dst, const wchar_t* _p_fcb, const int _opt, const wchar_t* _p_sts, const wchar_t* _p_prg)
+static void FCBTool(const wchar_t* _p_src, const wchar_t* _p_dst, const wchar_t* _p_fcb, const int _opt)
 {
 	HANDLE h_src = ::CreateFileW(_p_src, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
 	if (h_src == INVALID_HANDLE_VALUE)
@@ -275,7 +152,7 @@ static void FCBTool(const wchar_t* _p_src, const wchar_t* _p_dst, const wchar_t*
 		s_stop = true;
 		return;
 	}
-	HANDLE h_dst = ::CreateFileW(_p_dst, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE h_dst = ::CreateFileW(_p_dst, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (h_dst == INVALID_HANDLE_VALUE)
 	{
 		s_stop = true;
@@ -302,11 +179,26 @@ static void FCBTool(const wchar_t* _p_src, const wchar_t* _p_dst, const wchar_t*
 	DWORD dwRead = 0;
 	if (::ReadFile(h_fcb, s_buf, 8, &dwRead, NULL) != 0)
 	{
-		if (dwRead > 7 && memcmp(s_buf, "ファイル", 8) == 0)
+		if (dwRead > 7)
 		{
-			if (ReadLine(h_fcb, &llPos, FCB_HEAD_LIMIT, nullptr, nullptr) == false)
+			// \x..\x..\x....:ファイル, Comparin:英語モード
+			//
+			// C:\>FC /B C:\TMP\test.001 C:\TMP\test.002
+			// ファイル C:\TMP\test.001 と C:\TMP\TEST.002 を比較しています
+			// 0000038D: 2D 30
+			//
+			// C:\>chcp 437
+			// C:\>FC /B C:\TMP\test.001 C:\TMP\test.002
+			// Comparing files C:\TMP\test.001 and C:\TMP\TEST.002
+			// 0000038D: 2D 30
+			// 
+			if (memcmp(s_buf, "\x83\x74\x83\x40\x83\x43\x83\x8b", 8) == 0 ||
+				memcmp(s_buf, "Comparin", 8) == 0)
 			{
-				llPos = 0;
+				if (ReadLine(h_fcb, &llPos, FCB_HEAD_LIMIT, nullptr, nullptr) == false)
+				{
+					llPos = 0;
+				}
 			}
 		}
 	}
@@ -314,15 +206,17 @@ static void FCBTool(const wchar_t* _p_src, const wchar_t* _p_dst, const wchar_t*
 	LONGLONG llAdr = 0;
 	BYTE bLeft, bRight;
 	int result_read_fcb = 0;
-	WriteProgress(_p_prg, llSize, llAdr);
+	WriteProgress(llSize, llAdr);
 	do
 	{
-		short int status;
-		ReadStatus(_p_sts, &status);
-		if (status == 3)	// 3:中断要求
+		int status;
+		if (ReadFileInt(s_wsTempFileStatus.c_str(), &status) == 0)
 		{
-			s_stop = true;
-			break;
+			if (status == 3)	// 3:中断要求
+			{
+				s_stop = true;
+				break;
+			}
 		}
 		if (::ReadFile(h_src, s_buf, BUF_SIZE, &dwRead, NULL) == 0)
 		{
@@ -352,17 +246,22 @@ static void FCBTool(const wchar_t* _p_src, const wchar_t* _p_dst, const wchar_t*
 			(void)::WriteFile(h_dst, s_buf, dwRead, NULL, NULL);
 			llAdr += dwRead;
 		}
-		WriteProgress(_p_prg, llSize, llAdr);
+		WriteProgress(llSize, llAdr);
 	} while (dwRead != 0);
 	(void)::CloseHandle(h_src);
 	(void)::CloseHandle(h_dst);
 	(void)::CloseHandle(h_fcb);
-	WriteProgress(_p_prg, llSize, llSize);
+	WriteProgress(llSize, llSize);
 }
 
 /*!
  * @brief メイン
- * @return 0:成功, 1:失敗
+ * GUIプロセス(powershellスクリプト)を実行する。GUIプロセス終了まで待機する。
+ * @param[in]	hInstance		未使用
+ * @param[in]	hPrevInstance	未使用
+ * @param[in]	lpCmdLine		未使用
+ * @param[in]	nCmdShow		未使用
+ * @return 0固定
  */
 int APIENTRY wWinMain(
 	HINSTANCE hInstance,
@@ -374,10 +273,9 @@ int APIENTRY wWinMain(
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 	UNREFERENCED_PARAMETER(nCmdShow);
-	DWORD dwRet;
-	// スクリプト(.ps1)のパスを取得する
-	dwRet = ::GetModuleFileNameW(NULL, reinterpret_cast<LPWSTR>(s_buf), LONG_MAX_PATH);
-	if (dwRet > LONG_MAX_PATH || dwRet == 0)
+
+	// モジュールファイル(exe)のディレクトリ名取得
+	if (GetModuleDirectory(LONG_MAX_PATH, reinterpret_cast<wchar_t*>(s_buf)) != 0)
 	{
 		std::wstringstream wss;
 		wss << L"Failed GetModuleFileName";
@@ -385,32 +283,20 @@ int APIENTRY wWinMain(
 		(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
 		return 0;
 	}
-	else
-	{
-		// 最後の \ を削除
-		wchar_t* pwpos = wcsrchr(reinterpret_cast<wchar_t*>(s_buf), L'\\');
-		if (pwpos != NULL)
-		{
-			pwpos[1] = L'\0';
-		}
-	}
 	std::wstring wsModuleFileName = reinterpret_cast<wchar_t*>(s_buf);
 
 	// テンポラリファイル名(パラメータ用)を取得する
-	std::wstring wsTempFileParameter;
-	if (GetTemporaryFileName(wsTempFileParameter) == false)
+	if (GetTemporaryFileName(1, s_wsTempFileParameter) != 0)
 	{
 		return 0;
 	}
 	// テンポラリファイル名(ステータス用)を取得する
-	std::wstring wsTempFileStatus;
-	if (GetTemporaryFileName(wsTempFileStatus) == false)
+	if (GetTemporaryFileName(2, s_wsTempFileStatus) != 0)
 	{
 		return 0;
 	}
 	// テンポラリファイル名(プログレス用)を取得する
-	std::wstring wsTempFileProgress;
-	if (GetTemporaryFileName(wsTempFileProgress) == false)
+	if (GetTemporaryFileName(3, s_wsTempFileProgress) != 0)
 	{
 		return 0;
 	}
@@ -421,12 +307,12 @@ int APIENTRY wWinMain(
 		std::wstringstream wss;
 		wss << L"powershell -NoProfile -ExecutionPolicy Unrestricted -WindowStyle Hidden \"";
 		wss << wsModuleFileName;
-		wss << L"FCBTool.ps1\" \"";
-		wss << wsTempFileParameter;
+		wss << L"\\FCBTool.ps1\" \"";
+		wss << s_wsTempFileParameter;
 		wss << L"\" \"";
-		wss << wsTempFileStatus;
+		wss << s_wsTempFileStatus;
 		wss << L"\" \"";
-		wss << wsTempFileProgress;
+		wss << s_wsTempFileProgress;
 		wss << L"\"";
 		wsCmd = wss.str();
 	}
@@ -435,19 +321,52 @@ int APIENTRY wWinMain(
 	PROCESS_INFORMATION pi{};
 	si.cb = sizeof(si);
 	si.dwFlags = STARTF_USESHOWWINDOW;
-	if (CreateProcessW(nullptr, &wsCmd[0], nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi))
+	if (CreateProcessW(nullptr, &wsCmd[0], nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi) == FALSE)
 	{
-		do
 		{
-			dwRet = ::WaitForSingleObject(pi.hProcess, 500);
-			if (dwRet == WAIT_TIMEOUT)
+			std::wstringstream wss;
+			wss << L"FCBTool Failed CreateProcess " << wsCmd.c_str();
+			wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
+			wss << L"\x0d\x0a"; 
+			::OutputDebugStringW(wss.str().c_str());
+		}
+		{
+			std::wstringstream wss;
+			wss << L"Failed CreateProcess";
+			wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
+			(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
+		}
+		return 0;
+	}
+	DWORD dwRet = 0;
+	do
+	{
+		dwRet = ::WaitForSingleObject(pi.hProcess, 500);
+		if (dwRet == WAIT_TIMEOUT)
+		{
+			int status;
+			if (ReadFileInt(s_wsTempFileStatus.c_str(), &status) != 0)
 			{
-				short int status;
-				ReadStatus(wsTempFileStatus.c_str(), &status);
-				if (status == 1)				// 1:実行要求
+				status = -1;
+			}
+			if (status == 1)				// 1:実行要求
+			{
+				std::map<std::wstring, std::wstring> map;
+				int ret = ReadFileMap(s_wsTempFileParameter.c_str(), sizeof(s_buf), reinterpret_cast<char*>(s_buf), map);
+				if (ret != 0)
 				{
-					std::map<std::wstring, std::wstring> map;
-					ReadParameter(wsTempFileParameter.c_str(), map);
+					DWORD dwError = ::GetLastError();
+					std::wstringstream wss;
+					wss << L"Failed ReadFileMap " << ret << L" ";
+					wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(dwError);
+					(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
+					return 1;
+				}
+				if (map.count(L"src") > 0 &&
+					map.count(L"dst") > 0 &&
+					map.count(L"fcb") > 0 &&
+					map.count(L"opt") > 0)
+				{
 					int opt;
 					{
 						std::wstringstream wss;
@@ -469,32 +388,17 @@ int APIENTRY wWinMain(
 					{
 						wsFcb = LONG_PRE_PATH + wsFcb;
 					}
-					WriteStatus(wsTempFileStatus.c_str(), 2);		// 2:実行中
-					FCBTool(wsSrc.c_str(), wsDst.c_str(), wsFcb.c_str(), opt, wsTempFileStatus.c_str(), wsTempFileProgress.c_str());
-					WriteStatus(wsTempFileStatus.c_str(), 0);		// 0:NOP
+					WriteFileInt(s_wsTempFileStatus.c_str(), 2);	// 2:実行中
+					FCBTool(wsSrc.c_str(), wsDst.c_str(), wsFcb.c_str(), opt);
 				}
+				WriteFileInt(s_wsTempFileStatus.c_str(), 0);		// 0:NOP
 			}
-		} while (dwRet != WAIT_OBJECT_0);	// プロセス終了まで繰り返し
-	}
-	else
-	{
-		{
-			std::wstringstream wss;
-			wss << L"FCBTool Failed CreateProcess " << wsCmd.c_str();
-			wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-			wss << L"\x0d\x0a"; 
-			::OutputDebugStringW(wss.str().c_str());
 		}
-		{
-			std::wstringstream wss;
-			wss << L"Failed CreateProcess";
-			wss << L" 0x" << std::hex << std::setfill(L'0') << std::setw(4) << static_cast<long>(::GetLastError());
-			(void)::MessageBoxW(NULL, wss.str().c_str(), L"Error", MB_ICONERROR | MB_OK);
-		}
-	}
-	WriteStatus(wsTempFileStatus.c_str(), 0);		// 0:NOP
-	(void)::DeleteFile(wsTempFileParameter.c_str());
-	(void)::DeleteFile(wsTempFileStatus.c_str());
-	(void)::DeleteFile(wsTempFileProgress.c_str());
+	} while (dwRet != WAIT_OBJECT_0);	// プロセス終了まで繰り返し
+	(void)::CloseHandle(pi.hProcess);
+	(void)::CloseHandle(pi.hThread);
+	(void)::DeleteFile(s_wsTempFileParameter.c_str());
+	(void)::DeleteFile(s_wsTempFileStatus.c_str());
+	(void)::DeleteFile(s_wsTempFileProgress.c_str());
 	return 0;
 }

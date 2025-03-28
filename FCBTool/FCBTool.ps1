@@ -170,17 +170,11 @@ function buttonRun_Click()
     if ($res -eq "OK")
     {
         # 画面の入力内容をパラメータファイル(UTF-16)に保存
+        Set-Content -Path $parameterFile -Value "K=V"  -Encoding unicode # DUMMY
         for ($i = 0; $i -lt $aryName.Count; $i++)
         {
             $value = $aryName[$i] + "=" + $aryText[$i]
-            if ($i -eq 0)
-            {
-                Set-Content -Path $parameterFile -Value $value -Encoding unicode
-            }
-            else
-            {
-                Add-Content -Path $parameterFile -Value $value -Encoding unicode
-            }
+            Add-Content -Path $parameterFile -Value $value -Encoding unicode
         }
         Set-Content -Path $statusFile -Value "0001" -Encoding ascii # 1:実行要求
 
@@ -228,7 +222,7 @@ function timer_Tick()
     }
     elseif ($status -eq 2)  # 2:実行中
     {
-        $progress = Get-Content -Path $progressFile
+        $progress = Get-Content -Path $progressFile -Encoding unicode
         $progressBarRun.Maximum = $progress[0]
         $progressBarRun.Value   = $progress[1]
         $form.Refresh()
